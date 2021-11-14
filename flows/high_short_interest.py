@@ -3,13 +3,14 @@ import re
 from datetime import date, datetime, timedelta
 
 import pandas as pd  # type: ignore
+import prefect  # type: ignore
 import requests
 from bs4 import BeautifulSoup  # type: ignore
-from common import transform_number
 from prefect import Flow, task  # type: ignore
 from prefect.executors import LocalDaskExecutor  # type: ignore
 from prefect.schedules import IntervalSchedule  # type: ignore
 
+PROJECT_NAME = 'stocks'
 HIGH_SHORT_INTEREST_PATH = 'data/high_short_interest/'
 
 DATE_REGEXP = (
@@ -19,20 +20,33 @@ DATE_REGEXP = (
 )
 
 
-@task
+@task(max_retries=3, retry_delay=timedelta(seconds=10))
 def download_high_short_interest() -> str:
+    """Downloads content of the corresponding html page with data needed"""
+
+    logger = prefect.context.get('logger')
+
     filename = HIGH_SHORT_INTEREST_PATH + str(date.today()) + '.raw.html'
+
+    logger.info(f'Downloading high short interest data into {filename}')
 
     response = requests.get('https://www.highshortinterest.com/')
 
     with open(filename, 'w') as f:
         f.write(response.text)
 
+    logger.info(f'High short interest data is stored as {filename}')
+
     return filename
 
 
 @task
 def parse_date(filename: str) -> str:
+    """Parses raw html data and gets date when data was uploaded to the source"""
+
+    logger = prefect.context.get('logger')
+    logger.info(f'Parsing date from {filename}')
+
     with open(filename, 'r') as f:
         content = f.read()
 
@@ -46,11 +60,31 @@ def parse_date(filename: str) -> str:
         raise ValueError(f'Did not find date in {date_line}')
 
     datetime_obj = datetime.strptime(matches[0], '%B %d, %Y')
-    return datetime_obj.date().strftime('%Y-%m-%d')
+    parsed_date = datetime_obj.date().strftime('%Y-%m-%d')
+    logger.info(f'Found date {matches[0]}, which is parsed as {parsed_date}')
+    return parsed_date
 
 
 @task
 def create_high_short_interest_csv(filename: str) -> str:
+    """Parses raw html data, transforms it and saves as csv"""
+
+    def transform_number(x: str) -> float:
+        mult_symb = x[-1]
+        if mult_symb == 'B':
+            mult = 1000000000
+        elif mult_symb == 'M':
+            mult = 1000000
+        elif mult_symb == 'K':
+            mult = 1000
+        else:
+            raise ValueError(f'Unsupported number {x}')
+        number = float(x[:-1])
+        return mult * number
+
+    logger = prefect.context.get('logger')
+    logger.info(f'Transforming {filename}')
+
     with open(filename, 'r') as f:
         content = f.read()
 
@@ -65,11 +99,17 @@ def create_high_short_interest_csv(filename: str) -> str:
 
     csv_filename = HIGH_SHORT_INTEREST_PATH + str(date.today()) + '.data.csv'
     df.to_csv(csv_filename)
+    logger.info(f'Saved transformed csv file as {csv_filename}')
     return csv_filename
 
 
 @task
 def create_metadata(data_date: str) -> str:
+    """Creates json metadata file"""
+
+    logger = prefect.context.get('logger')
+    logger.info(f'Creating metadata for {data_date} data')
+
     filename = HIGH_SHORT_INTEREST_PATH + str(date.today()) + '.metadata.json'
     metadata = {
         'name': 'High Short Interest',
@@ -81,6 +121,7 @@ def create_metadata(data_date: str) -> str:
     with open(filename, 'w') as f:
         json.dump(metadata, f)
 
+    logger.info(f'Saved metadata as {filename}')
     return filename
 
 
@@ -96,4 +137,4 @@ with Flow('high_short_interest', schedule=schedule) as flow:
     create_metadata(data_date)
 
 flow.executor = LocalDaskExecutor()
-flow.register(project_name='stocks')
+flow.register(project_name=PROJECT_NAME)

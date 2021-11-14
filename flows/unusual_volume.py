@@ -2,13 +2,14 @@ import json
 from datetime import date, datetime, timedelta
 
 import pandas as pd  # type: ignore
+import prefect  # type: ignore
 import requests
 from bs4 import BeautifulSoup  # type: ignore
-from common import transform_number
 from prefect import Flow, task  # type: ignore
 from prefect.executors import LocalDaskExecutor  # type: ignore
 from prefect.schedules import IntervalSchedule  # type: ignore
 
+PROJECT_NAME = 'stocks'
 UNUSUAL_VOLUME = 'data/unusual_volume/'
 DATA_URL = (
     'https://stockbeep.com/table-data/unusual-volume-stocks'
@@ -16,20 +17,41 @@ DATA_URL = (
 )
 
 
-@task
+@task(max_retries=3, retry_delay=timedelta(seconds=10))
 def download_unusual_volume() -> str:
+    """Downloads content of the corresponding html page with data needed"""
+
+    logger = prefect.context.get('logger')
+
     filename = UNUSUAL_VOLUME + str(date.today()) + '.raw.html'
+    logger.info(f'Downloading unusual volume data into {filename}')
 
     response = requests.get(DATA_URL)
 
     with open(filename, 'w') as f:
         f.write(response.text)
 
+    logger.info(f'Unusual volume data is stored as {filename}')
     return filename
 
 
 @task
 def create_unusual_volume_csv(filename: str) -> str:
+    """Parses raw html data, transforms it and saves as csv"""
+
+    def transform_number(x: str) -> float:
+        mult_symb = x[-1]
+        if mult_symb == 'B':
+            mult = 1000000000
+        elif mult_symb == 'M':
+            mult = 1000000
+        elif mult_symb == 'K':
+            mult = 1000
+        else:
+            raise ValueError(f'Unsupported number {x}')
+        number = float(x[:-1])
+        return mult * number
+
     def get_ticker_from_href(x: str) -> str:
         soup = BeautifulSoup(x, 'html.parser')
         return soup.a['href'].split('/')[-1].split('-')[-1]
@@ -37,6 +59,9 @@ def create_unusual_volume_csv(filename: str) -> str:
     def get_exchange_from_href(x: str) -> str:
         soup = BeautifulSoup(x, 'html.parser')
         return soup.a['href'].split('/')[-1].split('-')[0]
+
+    logger = prefect.context.get('logger')
+    logger.info(f'Transforming {filename}')
 
     with open(filename, 'r') as f:
         content = f.read()
@@ -79,11 +104,17 @@ def create_unusual_volume_csv(filename: str) -> str:
 
     csv_filename = UNUSUAL_VOLUME + str(date.today()) + '.data.csv'
     df.to_csv(csv_filename)
+
+    logger.info(f'Saved transformed csv file as {csv_filename}')
     return csv_filename
 
 
 @task
 def create_metadata() -> str:
+    """Creates json metadata file"""
+
+    logger = prefect.context.get('logger')
+    logger.info('Creating metadata')
     filename = UNUSUAL_VOLUME + str(date.today()) + '.metadata.json'
     metadata = {
         'name': 'Unusual Volume',
@@ -95,6 +126,7 @@ def create_metadata() -> str:
     with open(filename, 'w') as f:
         json.dump(metadata, f)
 
+    logger.info(f'Saved metadata as {filename}')
     return filename
 
 
@@ -109,4 +141,4 @@ with Flow('unusual_volume', schedule=schedule) as flow:
     create_metadata()
 
 flow.executor = LocalDaskExecutor()
-flow.register(project_name='stocks')
+flow.register(project_name=PROJECT_NAME)
