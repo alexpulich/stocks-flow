@@ -1,0 +1,41 @@
+exclude: ^\..*
+
+repos:
+- repo: https://github.com/ambv/black
+  rev: stable
+  hooks:
+  - id: black
+    language_version: python3.7
+    always_run: True
+
+- repo: https://github.com/timothycrosley/isort
+  rev: 4.3.21
+  hooks:
+  - id: isort
+    args:
+      - --apply
+    additional_dependencies: [toml]
+    always_run: True
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v2.4.0
+  hooks:
+  - id: double-quote-string-fixer
+    always_run: True
+  - id: check-json
+    always_run: True
+  - id: pretty-format-json
+    args:
+      - --autofix
+      - --top-keys
+      - namespace,name,type
+    always_run: True
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v0.790
+  hooks:
+  - id: mypy
+    pass_filenames: False
+    args:
+      - flows/
+    always_run: True

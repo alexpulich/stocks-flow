@@ -1,17 +1,19 @@
-from datetime import date, datetime, timedelta
 import json
+from datetime import date, datetime, timedelta
+
+import pandas as pd  # type: ignore
 import requests
-
-import pandas as pd
-
-from bs4 import BeautifulSoup
-from prefect import task, Flow
-from prefect.executors import LocalDaskExecutor
-from prefect.schedules import IntervalSchedule
+from bs4 import BeautifulSoup  # type: ignore
+from common import transform_number
+from prefect import Flow, task  # type: ignore
+from prefect.executors import LocalDaskExecutor  # type: ignore
+from prefect.schedules import IntervalSchedule  # type: ignore
 
 UNUSUAL_VOLUME = 'data/unusual_volume/'
-DATA_URL = 'https://stockbeep.com/table-data/unusual-volume-stocks' \
-           '?sort-column=ssrvol&sort-order=desc&country=us&time-zone=-180'
+DATA_URL = (
+    'https://stockbeep.com/table-data/unusual-volume-stocks'
+    '?sort-column=ssrvol&sort-order=desc&country=us&time-zone=-180'
+)
 
 
 @task
@@ -27,20 +29,7 @@ def download_unusual_volume() -> str:
 
 
 @task
-def create_unusual_volume_csv(filename: str):
-    def transform_number(x: str) -> float:
-        mult = x[-1]
-        if mult == 'B':
-            mult = 1000000000
-        elif mult == 'M':
-            mult = 1000000
-        elif mult == 'K':
-            mult = 1000
-        else:
-            raise ValueError(f'Unsupported number {x}')
-        number = float(x[:-1])
-        return mult * number
-
+def create_unusual_volume_csv(filename: str) -> str:
     def get_ticker_from_href(x: str) -> str:
         soup = BeautifulSoup(x, 'html.parser')
         return soup.a['href'].split('/')[-1].split('-')[-1]
@@ -56,25 +45,41 @@ def create_unusual_volume_csv(filename: str):
     df = pd.DataFrame(json_data)
     df['ticker'] = df['sscode'].apply(get_ticker_from_href)
     df['exchange'] = df['sscode'].apply(get_exchange_from_href)
-    df = df[[
-        'ticker', 'exchange', 'ssname', 'sslast', 'sshigh', 'sschg', 'sschgp', 'ssvol', 'ssrvol', 'ss5mvol', 'sscap'
-    ]].rename({
-        'ssname': 'company',
-        'sslast': 'last',
-        'sshigh': 'high',
-        'sschg': 'change',
-        'sschgp': 'change_percents',
-        'ssvol': 'volume',
-        'ssrvol': 'relative_volume',
-        'ss5mvol': '5min_volume',
-        'sscap': 'capitalization',
-    }, axis=1)
+    df = df[
+        [
+            'ticker',
+            'exchange',
+            'ssname',
+            'sslast',
+            'sshigh',
+            'sschg',
+            'sschgp',
+            'ssvol',
+            'ssrvol',
+            'ss5mvol',
+            'sscap',
+        ]
+    ].rename(
+        {
+            'ssname': 'company',
+            'sslast': 'last',
+            'sshigh': 'high',
+            'sschg': 'change',
+            'sschgp': 'change_percents',
+            'ssvol': 'volume',
+            'ssrvol': 'relative_volume',
+            'ss5mvol': '5min_volume',
+            'sscap': 'capitalization',
+        },
+        axis=1,
+    )
     df['volume'] = df['volume'].apply(transform_number)
     df['5min_volume'] = df['5min_volume'].apply(transform_number)
     df['capitalization'] = df['capitalization'].apply(transform_number)
 
     csv_filename = UNUSUAL_VOLUME + str(date.today()) + '.data.csv'
     df.to_csv(csv_filename)
+    return csv_filename
 
 
 @task
@@ -98,10 +103,10 @@ schedule = IntervalSchedule(
     interval=timedelta(days=1),
 )
 
-with Flow("unusual_volume", schedule=schedule) as flow:
+with Flow('unusual_volume', schedule=schedule) as flow:
     raw_data_filename = download_unusual_volume()
     create_unusual_volume_csv(raw_data_filename)
     create_metadata()
 
 flow.executor = LocalDaskExecutor()
-flow.register(project_name="stocks")
+flow.register(project_name='stocks')
