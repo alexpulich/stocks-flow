@@ -104,7 +104,7 @@ def create_high_short_interest_csv(filename: str) -> str:
 
 
 @task
-def create_metadata(data_date: str) -> str:
+def create_metadata(data_date: str, data_path: str) -> str:
     """Creates json metadata file"""
 
     logger = prefect.context.get('logger')
@@ -117,6 +117,7 @@ def create_metadata(data_date: str) -> str:
         'effective_date': datetime.today().strftime('%Y-%m-%d'),
         'run_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'source_date': data_date,
+        'data_location': data_path,
     }
     with open(filename, 'w') as f:
         json.dump(metadata, f)
@@ -130,8 +131,8 @@ schedule = CronSchedule('0 20 * * MON-FRI')
 with Flow('high_short_interest', schedule=schedule) as flow:
     raw_data_filename = download_high_short_interest()
     data_date = parse_date(raw_data_filename)
-    create_high_short_interest_csv(raw_data_filename)
-    create_metadata(data_date)
+    data_path = create_high_short_interest_csv(raw_data_filename)
+    create_metadata(data_date, data_path)
 
 flow.executor = LocalDaskExecutor()
 flow.register(project_name=PROJECT_NAME)

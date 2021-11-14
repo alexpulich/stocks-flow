@@ -1,3 +1,5 @@
 #!/bin/sh
-python flows/high_short_interest.py
-python flows/unusual_volume.py
+for filename in flows/*.py; do
+  echo $filename
+  python $filename
+done

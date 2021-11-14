@@ -110,7 +110,7 @@ def create_unusual_volume_csv(filename: str) -> str:
 
 
 @task
-def create_metadata() -> str:
+def create_metadata(data_path) -> str:
     """Creates json metadata file"""
 
     logger = prefect.context.get('logger')
@@ -122,6 +122,7 @@ def create_metadata() -> str:
         'effective_date': datetime.today().strftime('%Y-%m-%d'),
         'run_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'source_date': datetime.today().strftime('%Y-%m-%d'),
+        'data_location': data_path,
     }
     with open(filename, 'w') as f:
         json.dump(metadata, f)
@@ -134,8 +135,8 @@ schedule = CronSchedule('0 20 * * MON-FRI')
 
 with Flow('unusual_volume', schedule=schedule) as flow:
     raw_data_filename = download_unusual_volume()
-    create_unusual_volume_csv(raw_data_filename)
-    create_metadata()
+    data_path = create_unusual_volume_csv(raw_data_filename)
+    create_metadata(data_path)
 
 flow.executor = LocalDaskExecutor()
 flow.register(project_name=PROJECT_NAME)
