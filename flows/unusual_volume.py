@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup  # type: ignore
 from prefect import Flow, task  # type: ignore
 from prefect.executors import LocalDaskExecutor  # type: ignore
-from prefect.schedules import IntervalSchedule  # type: ignore
+from prefect.schedules import CronSchedule  # type: ignore
 
 PROJECT_NAME = 'stocks'
 UNUSUAL_VOLUME = 'data/unusual_volume/'
@@ -130,10 +130,7 @@ def create_metadata() -> str:
     return filename
 
 
-schedule = IntervalSchedule(
-    start_date=datetime(2021, 11, 14, 20, 0, 0),
-    interval=timedelta(days=1),
-)
+schedule = CronSchedule('0 20 * * MON-FRI')
 
 with Flow('unusual_volume', schedule=schedule) as flow:
     raw_data_filename = download_unusual_volume()

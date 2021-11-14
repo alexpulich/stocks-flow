@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup  # type: ignore
 from prefect import Flow, task  # type: ignore
 from prefect.executors import LocalDaskExecutor  # type: ignore
-from prefect.schedules import IntervalSchedule  # type: ignore
+from prefect.schedules import CronSchedule  # type: ignore
 
 PROJECT_NAME = 'stocks'
 HIGH_SHORT_INTEREST_PATH = 'data/high_short_interest/'
@@ -125,10 +125,7 @@ def create_metadata(data_date: str) -> str:
     return filename
 
 
-schedule = IntervalSchedule(
-    start_date=datetime(2021, 11, 14, 20, 0, 0),
-    interval=timedelta(days=1),
-)
+schedule = CronSchedule('0 20 * * MON-FRI')
 
 with Flow('high_short_interest', schedule=schedule) as flow:
     raw_data_filename = download_high_short_interest()
